@@ -111,6 +111,7 @@ pub enum ConfigKey {
     GuardianSet,
     PendingUpgrade,
     UpgradeVotes,
+    MinimumBetAmount,
 }
 
 #[contracttype]

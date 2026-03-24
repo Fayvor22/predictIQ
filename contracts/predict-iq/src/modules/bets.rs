@@ -23,6 +23,12 @@ pub fn place_bet(
     // Check if contract is paused - high-risk operation
     crate::modules::circuit_breaker::require_not_paused_for_high_risk(e)?;
 
+    // Enforce minimum bet amount to prevent state-bloat attacks
+    let minimum_bet_amount = get_minimum_bet_amount(e);
+    if amount < minimum_bet_amount {
+        return Err(ErrorCode::InvalidBetAmount);
+    }
+
     let mut market = markets::get_market(e, market_id).ok_or(ErrorCode::MarketNotFound)?;
 
     if market.status != MarketStatus::Active {
@@ -188,4 +194,19 @@ pub fn withdraw_refund(
     crate::modules::events::emit_rewards_claimed(e, market_id, bettor, refund_amount, true);
 
     Ok(refund_amount)
+}
+
+pub fn get_minimum_bet_amount(e: &Env) -> i128 {
+    e.storage()
+        .persistent()
+        .get(&crate::types::ConfigKey::MinimumBetAmount)
+        .unwrap_or(1_000_000) // Default: 0.1 XLM (1,000,000 stroops) or equivalent
+}
+
+pub fn set_minimum_bet_amount(e: &Env, amount: i128) -> Result<(), ErrorCode> {
+    crate::modules::admin::require_admin(e)?;
+    e.storage()
+        .persistent()
+        .set(&crate::types::ConfigKey::MinimumBetAmount, &amount);
+    Ok(())
 }
