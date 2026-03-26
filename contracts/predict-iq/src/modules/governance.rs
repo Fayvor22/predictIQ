@@ -1,6 +1,7 @@
 use crate::errors::ErrorCode;
 use crate::types::{
     ConfigKey, Guardian, PendingUpgrade, MAJORITY_THRESHOLD_PERCENT, TIMELOCK_DURATION,
+    UPGRADE_COOLDOWN_DURATION,
 };
 use soroban_sdk::{Address, Env, String, Vec};
 
@@ -85,6 +86,8 @@ pub fn initiate_upgrade(e: &Env, wasm_hash: String) -> Result<(), ErrorCode> {
         return Err(ErrorCode::InvalidWasmHash);
     }
 
+    require_no_upgrade_collision(e, &wasm_hash)?;
+
     // Check if an upgrade is already pending
     if e.storage().persistent().has(&ConfigKey::PendingUpgrade) {
         return Err(ErrorCode::NotAuthorized);
@@ -104,6 +107,43 @@ pub fn initiate_upgrade(e: &Env, wasm_hash: String) -> Result<(), ErrorCode> {
         .persistent()
         .set(&ConfigKey::PendingUpgrade, &pending_upgrade);
     Ok(())
+}
+
+fn require_no_upgrade_collision(e: &Env, wasm_hash: &String) -> Result<(), ErrorCode> {
+    if let Some(pending_upgrade) = get_pending_upgrade(e) {
+        if pending_upgrade.wasm_hash == *wasm_hash {
+            return Err(ErrorCode::UpgradeAlreadyPending);
+        }
+    }
+
+    if let Some(rejected_at) = get_upgrade_rejected_at(e, wasm_hash) {
+        let current_time = e.ledger().timestamp();
+        let elapsed = current_time.saturating_sub(rejected_at);
+        if elapsed <= UPGRADE_COOLDOWN_DURATION {
+            return Err(ErrorCode::UpgradeHashInCooldown);
+        }
+    }
+
+    Ok(())
+}
+
+fn get_upgrade_rejected_at(e: &Env, wasm_hash: &String) -> Option<u64> {
+    e.storage()
+        .persistent()
+        .get(&ConfigKey::UpgradeRejectedAt(wasm_hash.clone()))
+}
+
+fn set_upgrade_rejected_at(e: &Env, wasm_hash: &String) {
+    e.storage().persistent().set(
+        &ConfigKey::UpgradeRejectedAt(wasm_hash.clone()),
+        &e.ledger().timestamp(),
+    );
+}
+
+fn clear_upgrade_rejected_at(e: &Env, wasm_hash: &String) {
+    e.storage()
+        .persistent()
+        .remove(&ConfigKey::UpgradeRejectedAt(wasm_hash.clone()));
 }
 
 /// Get the currently pending upgrade, if any.
@@ -196,6 +236,9 @@ pub fn execute_upgrade(e: &Env) -> Result<String, ErrorCode> {
 
     // Verify majority vote
     if !is_majority_met(e, &pending_upgrade) {
+        // A failed execution after the timelock is treated as a governance rejection.
+        set_upgrade_rejected_at(e, &pending_upgrade.wasm_hash);
+        e.storage().persistent().remove(&ConfigKey::PendingUpgrade);
         return Err(ErrorCode::InsufficientVotes);
     }
 
@@ -203,6 +246,7 @@ pub fn execute_upgrade(e: &Env) -> Result<String, ErrorCode> {
 
     // Clear pending upgrade
     e.storage().persistent().remove(&ConfigKey::PendingUpgrade);
+    clear_upgrade_rejected_at(e, &wasm_hash);
 
     Ok(wasm_hash)
 }
