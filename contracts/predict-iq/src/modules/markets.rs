@@ -82,18 +82,18 @@ pub fn create_market(
     }
 
     let reputation = get_creator_reputation(e, &creator);
-    let creation_deposit = get_creation_deposit(e);
+    let base_deposit = get_creation_deposit(e);
 
     let deposit_required = !matches!(
         reputation,
         CreatorReputation::Pro | CreatorReputation::Institutional
     );
 
-    if deposit_required && creation_deposit > 0 {
+    if adjusted_deposit > 0 {
         let token_client = token::Client::new(e, &native_token);
         let balance = token_client.balance(&creator);
 
-        if balance < creation_deposit {
+        if balance < adjusted_deposit {
             return Err(ErrorCode::InsufficientDeposit);
         }
 
@@ -212,7 +212,7 @@ pub fn get_creator_reputation(e: &Env, creator: &Address) -> CreatorReputation {
     e.storage()
         .persistent()
         .get(&DataKey::CreatorReputation(creator.clone()))
-        .unwrap_or(CreatorReputation::None)
+        .unwrap_or(CreatorReputation { score: 0 })
 }
 
 pub fn set_creator_reputation(
