@@ -7,7 +7,8 @@ pub enum DataKey {
     Market(u64),
     MarketCount,
     CreatorReputation(Address),
-    OutcomeStake(u64, u32), // market_id, outcome
+    OutcomeStake(u64, u32),     // market_id, outcome
+    OutcomeBetCount(u64, u32),  // market_id, outcome
 }
 
 pub fn create_market(
@@ -103,9 +104,10 @@ pub fn create_market(
 
     let num_outcomes = options.len() as u32;
 
-    // Pre-initialize outcome_stakes map with 0 for all outcomes to optimize gas
+    // Pre-initialize outcome_stakes and bet counts with 0 for all outcomes to optimize gas
     for i in 0..num_outcomes {
         set_outcome_stake(e, count, i, 0);
+        set_outcome_bet_count(e, count, i, 0);
     }
 
     let market = Market {
@@ -185,6 +187,26 @@ pub fn set_outcome_stake(e: &Env, market_id: u64, outcome: u32, amount: i128) {
         .extend_ttl(&key, TTL_LOW_THRESHOLD, TTL_HIGH_THRESHOLD);
 }
 
+pub fn get_outcome_bet_count(e: &Env, market_id: u64, outcome: u32) -> u32 {
+    e.storage()
+        .persistent()
+        .get(&DataKey::OutcomeBetCount(market_id, outcome))
+        .unwrap_or(0)
+}
+
+pub fn increment_outcome_bet_count(e: &Env, market_id: u64, outcome: u32) {
+    let count = get_outcome_bet_count(e, market_id, outcome);
+    set_outcome_bet_count(e, market_id, outcome, count + 1);
+}
+
+pub fn set_outcome_bet_count(e: &Env, market_id: u64, outcome: u32, amount: u32) {
+    let key = DataKey::OutcomeBetCount(market_id, outcome);
+    e.storage().persistent().set(&key, &amount);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_LOW_THRESHOLD, TTL_HIGH_THRESHOLD);
+}
+
 pub fn set_payout_mode(
     e: &Env,
     market_id: u64,
@@ -204,9 +226,8 @@ pub fn set_payout_mode(
 }
 
 // Gas-optimized market count for specific outcome
-pub fn count_bets_for_outcome(_e: &Env, _market_id: u64, _outcome: u32) -> u32 {
-    // Placeholder — a production implementation would maintain a separate index.
-    0
+pub fn count_bets_for_outcome(e: &Env, market_id: u64, outcome: u32) -> u32 {
+    get_outcome_bet_count(e, market_id, outcome)
 }
 
 pub fn get_creator_reputation(e: &Env, creator: &Address) -> CreatorReputation {
@@ -299,11 +320,14 @@ pub fn prune_market(e: &Env, market_id: u64) -> Result<(), ErrorCode> {
     // Remove market from persistent storage
     e.storage().persistent().remove(&DataKey::Market(market_id));
 
-    // Remove outcome stakes
+    // Remove outcome stakes and bet counts
     for i in 0..market.options.len() as u32 {
         e.storage()
             .persistent()
             .remove(&DataKey::OutcomeStake(market_id, i));
+        e.storage()
+            .persistent()
+            .remove(&DataKey::OutcomeBetCount(market_id, i));
     }
 
     // Record market ID in event archive for indexers

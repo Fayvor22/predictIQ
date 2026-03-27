@@ -100,7 +100,7 @@ impl PredictIQ {
         outcome: u32,
         token_address: Address,
     ) -> Result<i128, ErrorCode> {
-        crate::modules::bets::withdraw_refund(&e, bettor, market_id, token_address)
+        crate::modules::bets::withdraw_refund(&e, bettor, market_id, outcome, token_address)
     }
 
     pub fn get_market(e: Env, id: u64) -> Option<crate::types::Market> {
@@ -313,5 +313,10 @@ impl PredictIQ {
     /// Paginated retrieval of archived (pruned) market IDs
     pub fn get_archived_market_ids(e: Env, offset: u32, limit: u32) -> Vec<u64> {
         crate::modules::event_archive::get_archived_market_ids(&e, offset, limit)
+    }
+
+    /// Get the accurate bet count for a specific outcome (analytics)
+    pub fn count_bets_for_outcome(e: Env, market_id: u64, outcome: u32) -> u32 {
+        crate::modules::markets::count_bets_for_outcome(&e, market_id, outcome)
     }
 }

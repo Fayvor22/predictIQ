@@ -471,3 +471,30 @@ fn test_bet_key_is_unique_per_outcome() {
     let refund1 = client.withdraw_refund(&user, &market_id, &1, &token);
     assert_eq!(refund1, 300);
 }
+
+#[test]
+fn test_bet_counter_accuracy() {
+    let (env, client, _admin, user, token) = setup_test_with_token();
+
+    env.ledger().set_timestamp(500);
+
+    let market_id = create_simple_market(&client, &env, &user, &token);
+
+    // Place 105 bets on outcome 0 to verify >100 requirement
+    for _ in 0..105 {
+        client.place_bet(&user, &market_id, &0, &1000, &token, &None);
+    }
+
+    // Verify the count is 105
+    let count = client.count_bets_for_outcome(&market_id, &0);
+    assert_eq!(count, 105);
+
+    // Place 50 bets on outcome 1
+    for _ in 0..50 {
+        client.place_bet(&user, &market_id, &1, &1000, &token, &None);
+    }
+
+    // Verify outcome 0 is still 105 and outcome 1 is 50
+    assert_eq!(client.count_bets_for_outcome(&market_id, &0), 105);
+    assert_eq!(client.count_bets_for_outcome(&market_id, &1), 50);
+}
