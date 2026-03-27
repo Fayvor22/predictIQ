@@ -290,25 +290,14 @@ pub fn claim_creation_deposit(
         return Err(ErrorCode::MarketNotActive);
     }
 
-    // 3. Deposit must still be held (not already claimed)
-    if market.creation_deposit == 0 {
-        return Err(ErrorCode::InsufficientDeposit);
-    }
-
-    // 4. The market must have resolved without a dispute.
-    //    If dispute_timestamp is set, the market was challenged — deposit is forfeited
-    //    (remains locked; governance can decide what to do with it separately).
-    if market.dispute_timestamp.is_some() {
-        return Err(ErrorCode::DisputeWindowStillOpen);
-    }
-
-    // 5. The full dispute window must have elapsed since oracle resolution
-    //    so that no late challenge can be filed after the deposit is returned.
+    // Deposit is locked until the dispute window has fully closed
     let pending_ts = market
         .pending_resolution_timestamp
         .ok_or(ErrorCode::ResolutionNotReady)?;
     let dispute_window = crate::modules::resolution::get_dispute_window(e);
-    if e.ledger().timestamp() < pending_ts + dispute_window {
+    let dispute_window_end = pending_ts + dispute_window;
+
+    if e.ledger().timestamp() < dispute_window_end {
         return Err(ErrorCode::DisputeWindowStillOpen);
     }
 
